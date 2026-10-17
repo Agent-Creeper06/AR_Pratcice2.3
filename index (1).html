@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>WebAR: своя 3D-модель на лице (MindAR Face Tracking)</title>
+
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+    #hint {
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 10; padding: 8px 14px; border-radius: 16px;
+      background: rgba(0,0,0,.6); color: #fff; font-size: 14px; transition: opacity .3s;
+      text-align: center; max-width: 90%;
+    }
+    #hint.hidden { opacity: 0; pointer-events: none; }
+
+    #toggleTune {
+      position: fixed; bottom: 16px; right: 16px; z-index: 11;
+      padding: 10px 14px; border: 0; border-radius: 20px; font-size: 14px;
+      background: rgba(255,255,255,.85); color: #111; cursor: pointer;
+    }
+    #tune {
+      position: fixed; bottom: 64px; right: 16px; z-index: 11; width: 260px;
+      padding: 12px; border-radius: 12px; background: rgba(0,0,0,.7); color: #fff;
+      font-size: 13px; display: none;
+    }
+    #tune label { display: block; margin-top: 6px; }
+    #tune input[type=range] { width: 100%; }
+    #tune output { float: right; color: #00c2ff; }
+    #tuneResult {
+      margin-top: 8px; padding: 6px; background: rgba(255,255,255,.1);
+      border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+
+<div id="hint">Загрузка библиотек...</div>
+
+<button id="toggleTune">Настройка</button>
+<div id="tune">
+  <label>Масштаб <output id="o_s"></output>
+    <input id="s" type="range" min="0.1" max="3" step="0.01" value="1"></label>
+  <label>Сдвиг X <output id="o_x"></output>
+    <input id="x" type="range" min="-1" max="1" step="0.01" value="0"></label>
+  <label>Сдвиг Y <output id="o_y"></output>
+    <input id="y" type="range" min="-1.5" max="1.5" step="0.01" value="0"></label>
+  <label>Сдвиг Z (вперёд/назад) <output id="o_z"></output>
+    <input id="z" type="range" min="-1.5" max="1.5" step="0.01" value="0"></label>
+  <label>Поворот X° <output id="o_rx"></output>
+    <input id="rx" type="range" min="-180" max="180" step="1" value="0"></label>
+  <label>Поворот Y° <output id="o_ry"></output>
+    <input id="ry" type="range" min="-180" max="180" step="1" value="0"></label>
+  <label>Поворот Z° <output id="o_rz"></output>
+    <input id="rz" type="range" min="-180" max="180" step="1" value="0"></label>
+  <div id="tuneResult"></div>
+</div>
+
+<!--
+  Разметка сцены лежит в <template> и вставляется в страницу только после того,
+  как библиотеки A-Frame и MindAR успешно загрузились.
+
+  anchorIndex — точка лица (из 468 точек MediaPipe):
+    168 — переносица (очки, маски на пол-лица)
+    10  — верх лба (шляпы, короны)
+    1   — кончик носа
+    152 — подбородок
+    234 / 454 — левая / правая щека
+-->
+<template id="sceneTpl">
+  <a-scene
+    mindar-face="filterMinCF: 0.0005; filterBeta: 5"
+    embedded
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights: true, antialias: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <a-assets timeout="30000">
+      <!-- ВСТАВЬТЕ СВОЮ МОДЕЛЬ ЗДЕСЬ: путь к .glb / .gltf -->
+      <a-asset-item id="userModel" src="model.glb"></a-asset-item>
+    </a-assets>
+
+    <a-camera active="false" position="0 0 0"></a-camera>
+
+    <a-light type="ambient" intensity="0.9"></a-light>
+    <a-light type="directional" intensity="1.2" position="0 2 3"></a-light>
+
+    <a-entity id="target" mindar-face-target="anchorIndex: 168">
+      <!-- modelRoot: сюда применяются ручные поправки (позиция/масштаб/поворот) -->
+      <a-entity id="modelRoot" position="0 0 0" rotation="0 0 0" scale="1 1 1">
+        <a-gltf-model id="userModelEntity" src="#userModel" fit-model="width: 1.5"></a-gltf-model>
+      </a-entity>
+    </a-entity>
+  </a-scene>
+</template>
+
+<script>
+  const hint = document.getElementById('hint');
+
+  function showHint(text) {
+    hint.textContent = text;
+    hint.classList.remove('hidden');
+  }
+
+  // ---------- Панель ручной настройки (не зависит от A-Frame) ----------
+  const ids = ['s', 'x', 'y', 'z', 'rx', 'ry', 'rz'];
+  const inputs = {};
+  ids.forEach(id => inputs[id] = document.getElementById(id));
+
+  function applyTune() {
+    const v = {};
+    ids.forEach(id => {
+      v[id] = parseFloat(inputs[id].value);
+      document.getElementById('o_' + id).textContent = v[id];
+    });
+    const root = document.getElementById('modelRoot');
+    if (root) {
+      root.setAttribute('position', `${v.x} ${v.y} ${v.z}`);
+      root.setAttribute('rotation', `${v.rx} ${v.ry} ${v.rz}`);
+      root.setAttribute('scale', `${v.s} ${v.s} ${v.s}`);
+    }
+    document.getElementById('tuneResult').textContent =
+      `position="${v.x} ${v.y} ${v.z}" rotation="${v.rx} ${v.ry} ${v.rz}" scale="${v.s} ${v.s} ${v.s}"`;
+  }
+  ids.forEach(id => inputs[id].addEventListener('input', applyTune));
+  applyTune();
+
+  const tunePanel = document.getElementById('tune');
+  document.getElementById('toggleTune').addEventListener('click', () => {
+    tunePanel.style.display = tunePanel.style.display === 'block' ? 'none' : 'block';
+  });
+
+  // ---------- Загрузка скрипта с запасными источниками ----------
+  function loadScript(urls) {
+    return new Promise((resolve, reject) => {
+      let i = 0;
+      const tryNext = () => {
+        if (i >= urls.length) { reject(new Error('Не удалось загрузить: ' + urls.join(', '))); return; }
+        const url = urls[i++];
+        const s = document.createElement('script');
+        s.src = url;
+        s.onload = () => { console.log('Загружено:', url); resolve(url); };
+        s.onerror = () => { console.warn('Не загрузилось:', url); s.remove(); tryNext(); };
+        document.head.appendChild(s);
+      };
+      tryNext();
+    });
+  }
+
+  // Порядок источников: сначала локальная копия (папка libs/ рядом с index.html),
+  // потом jsdelivr, потом unpkg.
+  const AFRAME_URLS = [
+    'libs/aframe.min.js',
+    'https://cdn.jsdelivr.net/npm/aframe@1.5.0/dist/aframe.min.js',
+    'https://unpkg.com/aframe@1.5.0/dist/aframe.min.js'
+  ];
+  const MINDAR_URLS = [
+    'libs/mindar-face-aframe.prod.js',
+    'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js',
+    'https://unpkg.com/mind-ar@1.2.5/dist/mindar-face-aframe.prod.js'
+  ];
+
+  // ---------- Компонент автоподгонки модели ----------
+  function registerFitModel() {
+    AFRAME.registerComponent('fit-model', {
+      schema: { width: { type: 'number', default: 1.5 } },
+      init: function () {
+        this.el.addEventListener('model-loaded', () => {
+          const obj = this.el.getObject3D('mesh');
+          if (!obj) return;
+
+          this.el.object3D.scale.set(1, 1, 1);
+          this.el.object3D.position.set(0, 0, 0);
+
+          const box = new THREE.Box3().setFromObject(obj);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          if (size.x === 0) return;
+
+          const k = this.data.width / size.x;
+          this.el.object3D.scale.setScalar(k);
+          this.el.object3D.position.set(-center.x * k, -center.y * k, -center.z * k);
+          console.log('Модель загружена. Исходный размер:', size, 'коэффициент:', k);
+        });
+
+        this.el.addEventListener('model-error', () => {
+          showHint('Не удалось загрузить model.glb — проверьте имя и путь файла (регистр букв важен на GitHub Pages)');
+        });
+      }
+    });
+  }
+
+  // ---------- Запуск ----------
+  async function start() {
+    try {
+      await loadScript(AFRAME_URLS);
+      await loadScript(MINDAR_URLS);
+    } catch (e) {
+      console.error(e);
+      showHint('Не удалось загрузить A-Frame/MindAR. Сайт CDN может быть заблокирован — положите файлы в папку libs/ (см. инструкцию)');
+      return;
+    }
+
+    registerFitModel();
+
+    // вставляем сцену в страницу
+    const tpl = document.getElementById('sceneTpl');
+    document.body.appendChild(tpl.content.cloneNode(true));
+
+    const scene = document.querySelector('a-scene');
+    const target = document.getElementById('target');
+
+    target.addEventListener('targetFound', () => hint.classList.add('hidden'));
+    target.addEventListener('targetLost', () => showHint('Наведите камеру на лицо'));
+
+    scene.addEventListener('arError', () => {
+      showHint('Нет доступа к камере. Нужен HTTPS и разрешение на камеру.');
+    });
+
+    scene.addEventListener('loaded', applyTune);
+    showHint('Разрешите доступ к камере и наведите её на лицо');
+  }
+
+  start();
+</script>
+
+</body>
+</html>

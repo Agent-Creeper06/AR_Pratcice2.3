@@ -32,9 +32,12 @@
       margin-top: 8px; padding: 6px; background: rgba(255,255,255,.1);
       border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all;
     }
+    #arContainer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; }
   </style>
 </head>
 <body>
+
+<div id="arContainer"></div>
 
 <div id="hint">Загрузка библиотек...</div>
 
@@ -207,7 +210,7 @@
 
     // вставляем сцену в страницу
     const tpl = document.getElementById('sceneTpl');
-    document.body.appendChild(tpl.content.cloneNode(true));
+    document.getElementById('arContainer').innerHTML = tpl.innerHTML;
 
     const scene = document.querySelector('a-scene');
     const target = document.getElementById('target');
